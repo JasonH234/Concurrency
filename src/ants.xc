@@ -272,7 +272,7 @@ void controller(chanend fromAttacker, chanend fromUser) {
     fromUser :> attempt;                                //start game when user moves
     fromUser <: 1;                                      //forbid first move
 
-    while (gameState == 0 || gameState == -1)
+    while (gameState == 0 || gameState == 1)
     {
         select
         {
@@ -289,7 +289,7 @@ void controller(chanend fromAttacker, chanend fromUser) {
                         //Send terminate signal to attacker
                         fromAttacker <: -1;
                         //Set terminate variable
-                        gameState = -1; //Set game state to shut down user ant after attacker ant
+                        gameState = 1; //Set game state to shut down user ant after attacker ant
                     }
                     else
                     {
@@ -311,6 +311,7 @@ void controller(chanend fromAttacker, chanend fromUser) {
                 {
                     //Send terminate signal
                     fromUser <: -1;
+                    gameState = -1;
                 }
                 else if(attempt != lastReportedAttackerAntPosition)
                 {
