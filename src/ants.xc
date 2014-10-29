@@ -99,7 +99,7 @@ void waitMoment()
     timer tmr;
     uint waitTime;
     tmr :> waitTime;
-    waitTime += 10000000;
+    waitTime += 1000000;
     tmr when timerafter(waitTime) :> void;
 }
 
@@ -158,7 +158,7 @@ void userAnt(chanend fromButtons, chanend toVisualiser, chanend toController)
     int gameState = 0;                          //0 for running, 1 for end
     toVisualiser <: userAntPosition;            //show initial position
 
-    fromButtons :> buttonInput;                 //Initial button
+    fromButtons :> buttonInput;                 //Initial button to start
 
     while (gameState == 0)
     {
@@ -182,7 +182,6 @@ void userAnt(chanend fromButtons, chanend toVisualiser, chanend toController)
         toController <: attemptedAntPosition;
         //wait to receive 0 for move allowed, or 1 for move forbidden.
         toController :> moveForbidden;
-        toController :> gameState;
         if(moveForbidden == 0)
         {
             userAntPosition = attemptedAntPosition;
@@ -190,10 +189,15 @@ void userAnt(chanend fromButtons, chanend toVisualiser, chanend toController)
             toVisualiser <: userAntPosition;
             printf("Defender moved to %d\n", userAntPosition);
         }
-        else
+        else if (moveForbidden == 1)
         {
             //move forbidden.
             printf("Move to %d not allowed\n", userAntPosition);
+        }
+        else
+        {
+            //Set terminate variable if moveForbidden is set to trigger value -1
+            gameState = -1;
         }
     }
     toVisualiser <: -1;
@@ -233,7 +237,6 @@ void attackerAnt(chanend toVisualiser, chanend toController)
         toController <: attemptedAntPosition;
         //recieve whether move allowed
         toController :> moveForbidden;
-        toController :> gameState;
         //move is allowed
         if(moveForbidden == 0)
         {
@@ -244,11 +247,16 @@ void attackerAnt(chanend toVisualiser, chanend toController)
             printf("Attacker moved to %d\n", attackerAntPosition);
         }
         //else defender is in attempted move position.
-        else
+        else if (moveForbidden == 1)
         {
             currentDirection = -currentDirection;
         }
-        waitMoment();
+        else
+        {
+            //Set terminate variable
+            gameState = -1;
+        }
+        //waitMoment();
     }
     printf("Terminated attacker \n");
 }
@@ -262,10 +270,9 @@ void controller(chanend fromAttacker, chanend fromUser) {
     int gameState = 0;                                  //0 for running, 1 for waiting for user to terminate, 2 for ready to terminate
     int attempt = 0;
     fromUser :> attempt;                                //start game when user moves
-    fromUser <: 1;
-    fromUser <: gameState;                              //forbid first move
+    fromUser <: 1;                                      //forbid first move
 
-    while (gameState == 0 || gameState == 1)
+    while (gameState == 0 || gameState == -1)
     {
         select
         {
@@ -275,47 +282,48 @@ void controller(chanend fromAttacker, chanend fromUser) {
                 if(attempt != lastReportedUserAntPosition)
                 {
                     printf("Move Attacker allowed\n");
-                    fromAttacker <: 0;
                     lastReportedAttackerAntPosition = attempt;
                     //victory condition - check if attacker ant has reached LED positions 1, 11 or 12.
                     if(attempt == 0 || attempt == 11 || attempt == 10)
                     {
+                        //Send terminate signal to attacker
                         fromAttacker <: -1;
-                        gameState = 1;
+                        //Set terminate variable
+                        gameState = -1; //Set game state to shut down user ant after attacker ant
                     }
                     else
                     {
+                        //Send move allowed signal to attacker
                         fromAttacker <: 0;
                     }
                 }
                 //move forbidden
                 else
                 {
+                    //Send move forbidden signal to attacker
                     fromAttacker <: 1;
-                    fromAttacker <: 0;
                 }
                 break;
             case fromUser :> attempt:
                 printf("Request move to %d\n", attempt);
-                if(attempt != lastReportedAttackerAntPosition)
+
+                if (gameState != 0)
+                {
+                    //Send terminate signal
+                    fromUser <: -1;
+                }
+                else if(attempt != lastReportedAttackerAntPosition)
                 {
                     printf("Move Defender allowed\n");
+                    //Send move allowed signal
                     fromUser <: 0;
+                    //Update last reported position
                     lastReportedUserAntPosition = attempt;
                 }
                 else
                 {
-                    printf("RUN AWAY FROM ATTACKER ANT!!! FLEEEEEEE\n");
+                    //Send move forbidden signal
                     fromUser <: 1;
-                }
-
-                //check if user is to be terminated
-                if(gameState == 0)
-                    fromUser <: 0;
-                else
-                {
-                    fromUser <: 1;
-                    gameState = 2;
                 }
                 break;
         }
