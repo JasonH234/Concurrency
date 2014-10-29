@@ -132,17 +132,17 @@ void waitMoment()
 //READ BUTTONS and send to userAnt
 void buttonListener(in port b, out port spkr, chanend toUserAnt) {
   int r;
-  int a;
   while (1) {
     select
     {
-        case toUserAnt :> a:
+        case toUserAnt :> r:
                 printf("Terminated buttonListener\n");
                 return;
                 break;
         case b when pinsneq(15) :> r:   // check if some buttons are pressed
             playSound(2000000,spkr);   // play sound
             toUserAnt <: r;            // send button pattern to userAnt
+            waitMoment();
             break;
     }
   }
@@ -177,22 +177,28 @@ void userAnt(chanend fromButtons, chanend toVisualiser, chanend toController)
 {
     int userAntPosition = 11;          //the current defender position
     int buttonInput;                            //the input pattern from the buttonListener
-    int attemptedAntPosition = 0;      //the next attempted defender position after considering button
+    int attemptedAntPosition = 11;      //the next attempted defender position after considering button
     int moveForbidden;                          //the verdict of the controller if move is allowed
     int gameState = 0;                 //0 for running, 1 for end
     toVisualiser <: userAntPosition;            //show initial position
 
     while (gameState == 0)
     {
-        fromButtons :> buttonInput;
-        //fromButtons <: -1;
-        if (buttonInput == 14)
+        select
         {
-            attemptedAntPosition = checkBounds(userAntPosition +1);
-        }
-        if (buttonInput == 7)
-        {
-            attemptedAntPosition = checkBounds(userAntPosition -1);
+            case fromButtons :> buttonInput:
+                if (buttonInput == 14)
+                {
+                    attemptedAntPosition = checkBounds(userAntPosition +1);
+                }
+                if (buttonInput == 7)
+                {
+                    attemptedAntPosition = checkBounds(userAntPosition -1);
+                }
+                break;
+            default:
+                printf("hi");
+                break;
         }
         //Send attempted position to controller
         toController <: attemptedAntPosition;
