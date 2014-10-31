@@ -209,12 +209,17 @@ void terminateDefender(chanend fromButtons, chanend toVisualiser){
 }
 
 int buttonPressed(int buttonInput, int userAntPosition, chanend fromButtons, chanend toController, chanend toVisualiser){
-    int attemptedAntPosition = 11;              //the next attempted defender position after considering button
+    int attemptedAntPosition;              //the next attempted defender position after considering button
 
     switch(buttonInput){
         case 7:     //anti clockwise move 1
             attemptedAntPosition = checkBounds(userAntPosition -1);
             userAntPosition = attemptMove(attemptedAntPosition, userAntPosition, toController, toVisualiser);
+            break;
+        case 11:    //restart, so reset user ant position and send restart signal to controller
+            userAntPosition = 11;
+            toVisualiser <: userAntPosition;
+            toController <: -3;
             break;
         case 13:    //pause
             pauseDefender(fromButtons, toController);
@@ -267,7 +272,7 @@ void attackerAnt(chanend toVisualiser, chanend toController)
     toVisualiser <: attackerAntPosition;        //show initial position
     int speed = 10000000;
 
-    while (moveForbidden != -1)
+    while (1)
     {
         //invert current direction when move counter is divisable by 31, 37 and 47
         if(moveCounter%31==0 || moveCounter%37==0 || moveCounter%47==0)
@@ -291,10 +296,22 @@ void attackerAnt(chanend toVisualiser, chanend toController)
         {
             currentDirection = -currentDirection;
         }
-        //if signal = 2 then pause
-        else if(moveForbidden == 2){
+        else if(moveForbidden == -1){
+            printf("Terminated attacker \n");
+            return;
+        }
+        //if signal = -2 then pause
+        else if(moveForbidden == -2){
             //wait for controller to send resume signal
             toController :> moveForbidden;
+        }
+        //if signal = -3 then restart
+        else if(moveForbidden == -3){
+            moveCounter = 0;
+            attackerAntPosition = 5;
+            toVisualiser <: attackerAntPosition;
+            currentDirection = 1;
+            speed = 10100000;
         }
 
         //Delays attacker speed, progressive speedup throughout game.
@@ -302,7 +319,6 @@ void attackerAnt(chanend toVisualiser, chanend toController)
         if(speed > 100000)
             speed -= 100000;
     }
-    printf("Terminated attacker \n");
 }
 
 //COLLISION DETECTOR...     the controller process responds to ¿permission-to-move¿ requests
@@ -370,12 +386,20 @@ void controller(chanend fromAttacker, chanend fromUser) {
                         printf("Pause Game\n");
                         //Recieve attempt before sending pause signal
                         fromAttacker :> attempt;
-                        fromAttacker <:2;
+                        fromAttacker <:-2;
                         break;
                     case -2:
                         printf("Unpause Game\n");
-                        //Send a move forbidden signal to proceed attacker ant
-                        fromAttacker <:1;
+                        //Send signal to proceed attacker ant
+                        fromAttacker <:-2;
+                        break;
+                    case -3:
+                        fromAttacker :> attempt;
+                        //send reset signal to attacker, reset controller values
+                        fromAttacker <: -3;
+                        gameState = 0;
+                        lastReportedUserAntPosition = 11;
+                        lastReportedAttackerAntPosition = 5;
                         break;
                     default:
                         if(attempt != lastReportedUserAntPosition){
@@ -396,6 +420,8 @@ void controller(chanend fromAttacker, chanend fromUser) {
     }
     printf("Terminated controller\n");
 }
+
+
 
 //MAIN PROCESS defining channels, orchestrating and starting the processes
 int main(void)
