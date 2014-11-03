@@ -21,22 +21,21 @@ out port cledR = PORT_CLOCKLED_SELR;
 in port buttons = PORT_BUTTON;
 out port speaker = PORT_SPEAKER;
 
-/////////////////////////////////////////////////////////////////////////////////////////
-//
-// Helper Functions provided for you
-//
-/////////////////////////////////////////////////////////////////////////////////////////
-
 //DISPLAYS an LED pattern in one quadrant of the clock LEDs
 int showLED(out port p, chanend fromVisualiser)
 {
+    //Variable that determines which LED in quadrant to light up
     int lightUpPattern = 0;
 
+    //Loop until game end signal (-1) is received
     while (lightUpPattern != -1)
     {
-        fromVisualiser :> lightUpPattern;   //read LED pattern from visualiser process
-        p <: lightUpPattern;                //send pattern to LEDs
+        //Awaiting to receive data from the visualiser
+        fromVisualiser :> lightUpPattern;
+        //Send the light pattern to the LEDs
+        p <: lightUpPattern;
     }
+    //Turn off LEDs with signal (0) when terminating showLED gracefully
     p <: 0;
     printf("Terminated showLED\n");
     return 0;
@@ -45,13 +44,16 @@ int showLED(out port p, chanend fromVisualiser)
 //PROCESS TO COORDINATE DISPLAY of LED Ants
 void visualiser(chanend fromUserAnt, chanend fromAttackerAnt, chanend toQuadrant0, chanend toQuadrant1, chanend toQuadrant2, chanend toQuadrant3)
 {
+    //Initial positions to display
     int userAntToDisplay = 11;
     int attackerAntToDisplay = 5;
 
     int i, j;
+    //Activating green LEDs
     cledG <: 1;
     while (userAntToDisplay != -1)
     {
+        //Wait until signal is received from either user or attacker ant
         select
         {
             case fromUserAnt :> userAntToDisplay:
@@ -59,6 +61,7 @@ void visualiser(chanend fromUserAnt, chanend fromAttackerAnt, chanend toQuadrant
             case fromAttackerAnt :> attackerAntToDisplay:
                 break;
         }
+        //Setting quadrants and LEDs with the respective bit patterns
         j = 16<<(userAntToDisplay%3);
         i = 16<<(attackerAntToDisplay%3);
         toQuadrant0 <: (j*(userAntToDisplay/3==0)) + (i*(attackerAntToDisplay/3==0)) ; /*0b01110000;*/
@@ -66,7 +69,7 @@ void visualiser(chanend fromUserAnt, chanend fromAttackerAnt, chanend toQuadrant
         toQuadrant2 <: (j*(userAntToDisplay/3==2)) + (i*(attackerAntToDisplay/3==2)) ;
         toQuadrant3 <: (j*(userAntToDisplay/3==3)) + (i*(attackerAntToDisplay/3==3)) ;
     }
-    //Ending
+    //Ending by passing game end signal to the quadrants and turning them off
     if (userAntToDisplay == -1)
     {
         toQuadrant0 <: -1;
@@ -78,7 +81,7 @@ void visualiser(chanend fromUserAnt, chanend fromAttackerAnt, chanend toQuadrant
     }
 }
 
-//PLAYS a short sound (pls use with caution and consideration to other students in the labs!)
+//PLAYS a short sound (pls use with caution and consideration to other students in the labs!) Yes sir
 void playSound(int wavelength, out port speaker)
 {
     timer tmr;
@@ -106,24 +109,28 @@ void waitMoment(int waitAmount)
 //READ BUTTONS and send to userAnt
 void buttonListener(in port b, out port spkr, chanend toUserAnt) {
   int r;
+  //Loops until return statement
   while (1) {
     select
     {
+        //Terminate when receiving signal from the user ant
         case toUserAnt :> r:
                 printf("Terminated buttonListener, r == %d\n", r);
                 return;
                 break;
-        case b when pinsneq(15) :> r:   // check if some buttons are pressed
+        //Otherwise when nothing is pressed send button pattern to user ant
+        case b when pinsneq(15) :> r:
             printf("r == %d\n", r);
-            playSound(2000000,spkr);   // play sound
-            toUserAnt <: r;            // send button pattern to userAnt
+            playSound(2000000,spkr);
+            toUserAnt <: r;
+            //Wait to prevent skipping termination from constant sending
             waitMoment(100000);
             break;
     }
   }
 }
 
-//BoundsCheck
+//Bounds Check for position
 int checkBounds(int pos)
 {
     if(pos < 0)
@@ -140,30 +147,23 @@ int checkBounds(int pos)
     }
 }
 
-/////////////////////////////////////////////////////////////////////////////////////////
-//
-// MOST RELEVANT PART OF CODE TO EXPAND FOR YOU
-//
-/////////////////////////////////////////////////////////////////////////////////////////
-
-//DEFENDER PROCESS... The defender is controlled by this process userAnt,
-//                    which has channels to a buttonListener, visualiser and controller
-
+//The function that checks the attempted moves and determines how the ant functions react.
 int attemptMove(int attemptedAntPosition, int userAntPosition, chanend toController, chanend toVisualiser){
-    int moveForbidden = 0;                      //the verdict of the controller if move is allowed, terminate if -1
+    //The variable that determines whether a move is allowed. Terminate if (-1).
+    int moveForbidden = 0;
 
     select{
-        //if number already on channel, then put in move forbidden
+        //If moveForbidden is received, continue
         case toController :> moveForbidden:
             break;
+        //Otherwise send attempted position to controller and wait for moveForbidden
         default:
-            //Send attempted position to controller
             toController <: attemptedAntPosition;
-            //wait to receive 0 for move allowed, or 1 for move forbidden.
             toController :> moveForbidden;
             break;
     }
 
+    //If move is allowed, set user ant position and update the visualiser.
     if(moveForbidden == 0)
     {
         userAntPosition = attemptedAntPosition;
@@ -171,19 +171,21 @@ int attemptMove(int attemptedAntPosition, int userAntPosition, chanend toControl
         toVisualiser <: userAntPosition;
         printf("Defender moved to %d\n", userAntPosition);
     }
+    //Otherwise disallow the move
     else
     {
-        //move forbidden.
         printf("Move to %d not allowed\n", userAntPosition);
-        //end game signal
+        //Check if the game has ended
         if(moveForbidden == -1){
+            //Set terminate signal to return
             userAntPosition = -1;
         }
     }
     return userAntPosition;
 }
 
-void pauseDefender(chanend fromButtons, chanend toController){
+//The pause function holds the game and handles the pausing through toggling mechanism
+void pauseGame(chanend fromButtons, chanend toController){
     //Resetting buttonInput for pause toggle functionality
     int buttonInput = 0;
     //Send pause signal (-1) to controller
@@ -191,10 +193,14 @@ void pauseDefender(chanend fromButtons, chanend toController){
     //Await continuation
     while (buttonInput != 13)
         fromButtons :> buttonInput;
+    //buttonInput = 0; <- try this to toggle
     //Initiate unpause condition
     toController <: -2;
+    //Wait to prevent pausing immediately ***To set appropriate amount/solution
+    waitMoment(5000000);
 }
 
+//This function tells the visualiser and  button listener to terminate when the defender is terminating
 void terminateDefender(chanend fromButtons, chanend toVisualiser){
     toVisualiser <: -1;
     //Select statement to end buttonListener regardless whether a button is held down or not.
@@ -208,23 +214,29 @@ void terminateDefender(chanend fromButtons, chanend toVisualiser){
     fromButtons <: -1;
 }
 
+//This function handles the button input from the button listener
 int buttonPressed(int buttonInput, int userAntPosition, chanend fromButtons, chanend toController, chanend toVisualiser){
-    int attemptedAntPosition;              //the next attempted defender position after considering button
+    //Declaring attempted position
+    int attemptedAntPosition;
 
     switch(buttonInput){
-        case 7:     //anti clockwise move 1
+        //Move anti-clockwise
+        case 7:
             attemptedAntPosition = checkBounds(userAntPosition -1);
             userAntPosition = attemptMove(attemptedAntPosition, userAntPosition, toController, toVisualiser);
             break;
-        case 11:    //restart, so reset user ant position and send restart signal to controller
+        //Restarting the game
+        case 11:
             userAntPosition = 11;
             toVisualiser <: userAntPosition;
             toController <: -3;
             break;
-        case 13:    //pause
-            pauseDefender(fromButtons, toController);
+        //Pause and unpausing
+        case 13:
+            pauseGame(fromButtons, toController);
             break;
-        case 14:    //clockwise move 1
+        case 14:
+            //Move clockwise
             attemptedAntPosition = checkBounds(userAntPosition +1);
             userAntPosition = attemptMove(attemptedAntPosition, userAntPosition, toController, toVisualiser);
             break;
@@ -232,26 +244,34 @@ int buttonPressed(int buttonInput, int userAntPosition, chanend fromButtons, cha
     return userAntPosition;
 }
 
+//This is the main function for the user ant
 void userAnt(chanend fromButtons, chanend toVisualiser, chanend toController)
 {
-    int userAntPosition = 11;                   //the current defender position
-    int buttonInput;                            //the input pattern from the buttonListener
+    //The current defender position
+    int userAntPosition = 11;
+    //Input pattern from buttonListener
+    int buttonInput;
+    //Signal from controller
     int controllerSignal;
-    toVisualiser <: userAntPosition;            //show initial position
-
-    fromButtons :> buttonInput;                 //Initial button to start
+    //Showing the initial position before starting
+    toVisualiser <: userAntPosition;
+    //Wait for the first button input before starting the game
+    fromButtons :> buttonInput;
 
     while (1)
     {
         select
         {
+            //When signal received from controller, set terminate variable
             case toController :> controllerSignal:
                 userAntPosition = -1;
                 break;
+            //When signal received from button listener, call buttonPressed function
             case fromButtons :> buttonInput:
                 userAntPosition = buttonPressed(buttonInput, userAntPosition, fromButtons, toController, toVisualiser);
                 break;
         }
+        //If terminate variable set, call terminate function and return
         if(userAntPosition == -1){
             terminateDefender(fromButtons, toVisualiser);
             printf("Terminated defender\n");
@@ -260,16 +280,19 @@ void userAnt(chanend fromButtons, chanend toVisualiser, chanend toController)
     }
 }
 
-//ATTACKER PROCESS... The attacker is controlled by this process attackerAnt,
-// which has channels to the visualiser and controller
+//This is the main function for the attacker ant
 void attackerAnt(chanend toVisualiser, chanend toController)
 {
-    int moveCounter = 0;                        //moves of attacker so far
-    int attackerAntPosition = 5;                //the current attacker position
-    int attemptedAntPosition;                   //the next attempted position after considering move direction
-    int currentDirection = 1;                   //the current direction the attacker is moving
-    int moveForbidden = 0;                      //the verdict of the controller if move is allowed
-    toVisualiser <: attackerAntPosition;        //show initial position
+    //The move counter is used to calculate score and determine whether the attacker should turn
+    int moveCounter = 0;
+    //Declaring variables
+    int attackerAntPosition = 5;
+    int attemptedAntPosition;
+    int currentDirection = 1;
+    int moveForbidden = 0;
+    //Show initial position
+    toVisualiser <: attackerAntPosition;
+    //Set speed of execution for wait function.
     int speed = 10000000;
 
     while (1)
