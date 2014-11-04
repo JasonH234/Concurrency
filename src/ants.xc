@@ -356,8 +356,11 @@ void attackerAnt(chanend toVisualiser, chanend toController)
     int moveForbidden = 0;
     //Show initial position
     toVisualiser <: attackerAntPosition;
+    //Set constant max speed
+    const int maxSpeed = 80000000;
     //Set speed of execution for wait function.
-    int speed = 100000000;
+    const int minSpeed = 30000000;
+    int speed = maxSpeed;
 
     while (1)
     {
@@ -398,14 +401,19 @@ void attackerAnt(chanend toVisualiser, chanend toController)
                 attackerAntPosition = 5;
                 toVisualiser <: attackerAntPosition;
                 currentDirection = 1;
-                //speed = 10000000;
+                speed = maxSpeed;
                 break;
         }
 
         //Delays attacker speed, progressive speedup throughout game.
         waitMoment(speed);
-        if(speed > 10000000)
-            speed *= 0.9;
+        if(speed > minSpeed)
+            speed *= 0.95;
+        else
+        {
+            speed -= moveCounter;
+            printf("yo");
+        }
     }
 }
 
