@@ -42,6 +42,7 @@ int showLED(out port p, chanend fromVisualiser)
 }
 
 //PROCESS TO COORDINATE DISPLAY of LED Ants
+//The visualiser coordinates the display of LED ants and tells showLEDs to terminate before it terminates itself
 void visualiser(chanend fromUserAnt, chanend fromAttackerAnt, chanend toQuadrant0, chanend toQuadrant1, chanend toQuadrant2, chanend toQuadrant3)
 {
     //Initial positions to display
@@ -107,7 +108,7 @@ void playSound(int wavelength, out port speaker)
     }
 }
 
-//WAIT function
+//The wait function waits for the period specified through its parameter
 void waitMoment(int waitAmount)
 {
     timer tmr;
@@ -117,7 +118,7 @@ void waitMoment(int waitAmount)
     tmr when timerafter(waitTime) :> void;
 }
 
-//READ BUTTONS and send to userAnt
+//Read buttons and send to user ant. Terminates when a signal is received from user ant.
 void buttonListener(in port b, out port spkr, chanend toUserAnt) {
   int r;
   //Loops until return statement
@@ -234,7 +235,8 @@ int buttonPressed(int buttonInput, int userAntPosition, chanend fromButtons, cha
     //Declaring attempted position
     int attemptedAntPosition;
 
-    switch(buttonInput){
+    switch(buttonInput)
+    {
         //Move anti-clockwise
         case 7:
             attemptedAntPosition = checkBounds(userAntPosition -1);
@@ -295,6 +297,53 @@ void userAnt(chanend fromButtons, chanend toVisualiser, chanend toController)
     }
 }
 
+/*void attackerAnt(chanend toVisualiser, chanend toController)
+{
+    //The move counter is used to calculate score and determine whether the attacker should turn
+        int moveCounter = 0;
+        //Declaring variables
+        int attackerAntPosition = 5;
+        int attemptedAntPosition;
+        int currentDirection = 1;
+        int moveForbidden = 0;
+        //Show initial position
+        toVisualiser <: attackerAntPosition;
+        //Set speed of execution for wait function.
+        int speed = 10000000;
+
+        while (1)
+        {
+            select
+            {
+                //When signal received from controller, set terminate variable
+                case toController :> controllerSignal:
+                    userAntPosition = -1;
+                    break;
+                //When signal received from button listener, call buttonPressed function
+                case fromButtons :> buttonInput:
+                    userAntPosition = buttonPressed(buttonInput, userAntPosition, fromButtons, toController, toVisualiser);
+                    break;
+            }
+            //If terminate variable set, call terminate function and return
+            if(userAntPosition == -1){
+                terminateButtons(fromButtons, toVisualiser);
+                //printf("Terminated defender\n");
+                return;
+            }
+        }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+int attackerCheckMove(int moveCounter, int attackerAntPosition, int attemptedAntPosition, chanend toVisualiser, chanend toController)
+{
+    attemptedAntPosition = checkBounds(attackerAntPosition + currentDirection);
+    //send attempt to controller
+    toController <: attemptedAntPosition;
+    //recieve whether move allowed
+    toController :> moveForbidden;
+}*/
+
 //This is the main function for the attacker ant
 void attackerAnt(chanend toVisualiser, chanend toController)
 {
@@ -308,7 +357,7 @@ void attackerAnt(chanend toVisualiser, chanend toController)
     //Show initial position
     toVisualiser <: attackerAntPosition;
     //Set speed of execution for wait function.
-    int speed = 10000000;
+    int speed = 100000000;
 
     while (1)
     {
@@ -316,50 +365,51 @@ void attackerAnt(chanend toVisualiser, chanend toController)
         if(moveCounter%31==0 || moveCounter%37==0 || moveCounter%47==0)
             currentDirection = -currentDirection;
         attemptedAntPosition = checkBounds(attackerAntPosition + currentDirection);
-        //send attempt to controller
+        //Send attempt to controller
         toController <: attemptedAntPosition;
-        //recieve whether move allowed
+        //Recieve signal for moveForbidden
         toController :> moveForbidden;
-        //move is allowed
-        if(moveForbidden == 0)
+        switch(moveForbidden)
         {
-            attackerAntPosition = attemptedAntPosition;
-            //Update visual display with new ant position
-            toVisualiser <: attackerAntPosition;
-            moveCounter ++;
-            //printf("Attacker moved to %d\n", attackerAntPosition);
-        }
-        //else defender is in attempted move position.
-        else if (moveForbidden == 1)
-        {
-            currentDirection = -currentDirection;
-        }
-        else if(moveForbidden == -1){
-            //printf("Terminated attacker \n");
-            return;
-        }
-        //if signal = -2 then pause
-        else if(moveForbidden == -2){
-            //wait for controller to send resume signal
-            toController :> moveForbidden;
-        }
-        //if signal = -3 then restart
-        else if(moveForbidden == -3){
-            moveCounter = 0;
-            attackerAntPosition = 5;
-            toVisualiser <: attackerAntPosition;
-            currentDirection = 1;
-            //speed = 10000000;
+            //Move allowed
+            case 0:
+                attackerAntPosition = attemptedAntPosition;
+                //Update visual display with new ant position
+                toVisualiser <: attackerAntPosition;
+                moveCounter ++;
+                //printf("Attacker moved to %d\n", attackerAntPosition);
+                break;
+            //Move forbidden
+            case 1:
+                currentDirection = -currentDirection;
+                break;
+            //Terminate
+            case -1:
+                //printf("Terminated attacker \n");
+                return;
+            //Pause
+            case -2:
+                //wait for controller to send resume signal
+                toController :> moveForbidden;
+                break;
+            //Restart
+            case -3:
+                moveCounter = 0;
+                attackerAntPosition = 5;
+                toVisualiser <: attackerAntPosition;
+                currentDirection = 1;
+                //speed = 10000000;
+                break;
         }
 
         //Delays attacker speed, progressive speedup throughout game.
         waitMoment(speed);
-    /*    if(speed > 100000)
-            speed -= 10000;*/
+        if(speed > 10000000)
+            speed *= 0.9;
     }
 }
 
-//COLLISION DETECTOR...     the controller process responds to ¿permission-to-move¿ requests
+//COLLISION DETECTOR...     the controller process responds to Â¿permission-to-moveÂ¿ requests
 //                          from attackerAnt and userAnt. The process also checks if an attackerAnt
 //                          has moved to LED positions I, XII and XI.
 void controller(chanend fromAttacker, chanend fromUser) {
