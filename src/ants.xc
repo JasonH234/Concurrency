@@ -133,9 +133,9 @@ void buttonListener(in port b, out port spkr, chanend toUserAnt) {
         case b when pinsneq(15) :> r:
             playSound(2000000,spkr);
             toUserAnt <: r;
-            while (r == 13)
+            if (r == 13)
             {
-                b when pinsneq(15) :> r;
+                waitMoment(15000000);
             }
             //Wait to prevent skipping termination from constant sending
             waitMoment(3000000);
@@ -202,15 +202,15 @@ int attemptMove(int attemptedAntPosition, int userAntPosition, chanend toControl
 void pauseGame(chanend fromButtons, chanend toController){
     //Resetting buttonInput for pause toggle functionality
     int buttonInput = 0;
-    //Send pause signal (-1) to controller
     printf("send 1\n");
-    toController <: -1;
+    //Send pause signal (-2) to controller
+    toController <: -2;
     //Await continuation
     while (buttonInput != 13)
         fromButtons :> buttonInput;
     //Initiate unpause condition
     printf("send 2\n");
-    toController <: -2;
+    toController <: -3;
 }
 
 //This function tells the visualiser and  button listener to terminate when the defender is terminating
@@ -255,7 +255,7 @@ int buttonPressed(int buttonInput, int userAntPosition, chanend fromButtons, cha
         case 11:
             userAntPosition = 11;
             toVisualiser <: userAntPosition;
-            toController <: -3;
+            toController <: -4;
             break;
         //Pause and unpausing
         case 13:
@@ -301,12 +301,30 @@ void userAnt(chanend fromButtons, chanend toVisualiser, chanend toController)
         if(userAntPosition == -1){
             //take attacker turn number from controller
             int moveNum;
-            toController :> moveNum;
+            //toController :> moveNum;
             terminateButtons(moveNum, fromButtons, toVisualiser);
             //printf("Terminated defender\n");
             return;
         }
     }
+}
+
+int changeDirection(int moveCounter, int currentDirection)
+{
+    //Invert current direction when move counter is divisable by 31, 37 and 47
+    if(moveCounter%31==0 || moveCounter%37==0 || moveCounter%47==0)
+                currentDirection = -currentDirection;
+
+    return currentDirection;
+}
+
+int setSpeed(int speed, int triggerSpeed)
+{
+    if (speed > triggerSpeed)
+        speed *= 0.95;
+    else
+        speed -= 20000;
+    return speed;
 }
 
 //This is the main function for the attacker ant
@@ -323,16 +341,15 @@ void attackerAnt(chanend toVisualiser, chanend toController)
     toVisualiser <: attackerAntPosition;
     //Set constant max speed
     const int maxSpeed = 80000000;
-    //Set constant min speed
-    const int changeSpeed = 10000000;
+    //Set constant value of trigger speed that determines when to change the rate of speed change.
+    const int triggerSpeed = 10000000;
     //Set speed of execution for wait function.
     int speed = 100000000;
 
     while (1)
     {
-        //invert current direction when move counter is divisable by 31, 37 and 47
-        if(moveCounter%31==0 || moveCounter%37==0 || moveCounter%47==0)
-            currentDirection = -currentDirection;
+        //Call procedure that checks whether direction should be changed
+        currentDirection = changeDirection(moveCounter, currentDirection);
         attemptedAntPosition = checkBounds(attackerAntPosition + currentDirection);
         //send attempt to controller
         toController <: attemptedAntPosition;
@@ -364,7 +381,7 @@ void attackerAnt(chanend toVisualiser, chanend toController)
                 toController :> moveForbidden;
                 break;
             //Restart
-            case -3:
+            case -4:
                 moveCounter = 0;
                 attackerAntPosition = 5;
                 toVisualiser <: attackerAntPosition;
@@ -373,22 +390,79 @@ void attackerAnt(chanend toVisualiser, chanend toController)
                 break;
         }
 
-        if (speed > changeSpeed)
-            speed *= 0.95;
-        else
-            speed -= 20000;
+        speed = setSpeed(speed, triggerSpeed);
     }
 }
 
-//COLLISION DETECTOR...     the controller process responds to ¿permission-to-move¿ requests
-//                          from attackerAnt and userAnt. The process also checks if an attackerAnt
-//                          has moved to LED positions I, XII and XI.
+int checkTerminateCondition(chanend fromAttacker, int attempt, int gameState)
+{
+    //Terminate condition - check if attacker ant has reached LED positions 1, 11 or 12
+    if(attempt == 0 || attempt == 11 || attempt == 10)
+    {
+        //Send terminate signal to attacker
+        fromAttacker <: -1;
+        //Set terminate variable
+        //Return 1 to set game state to prepare for termination.
+        return 1;
+    }
+    else
+    {
+        //Send move allowed signal to attacker
+        fromAttacker <: 0;
+        //Return current game state otherwise
+        return gameState;
+    }
+}
+
+int checkTerminate(chanend fromUser, int gameState)
+{
+    //if attacker has been terminated
+    if (gameState == 1)
+    {
+        //if data on channel, then clear data
+        select{
+            case fromUser :> int i:
+                break;
+            default:
+                break;
+         }
+         //Send terminate signal to user
+         fromUser <: -1;
+         return -1;     //Return -1 game state to let controller know it is ready to terminate
+    }
+    return gameState;
+}
+
+int checkUserMove(chanend fromUser, int attempt, int lastReportedUserAntPosition, int lastReportedAttackerAntPosition)
+{
+    //Check position not occupied by attacker
+    if(attempt != lastReportedAttackerAntPosition){
+        //printf("Move Defender allowed\n");
+        //Send move allowed signal
+        fromUser <: 0;
+        //Update last reported position to attempt
+        return attempt;
+    }
+    else
+    {
+        //Send move forbidden signal
+        fromUser <: 1;
+        //Do not change last reported user position
+        return lastReportedUserAntPosition;
+    }
+}
+
+//The controller procedure manages the game by communicating between the attacker and defender.It responds to move requests and computes the game state logic.
 void controller(chanend fromAttacker, chanend fromUser) {
-    int lastReportedUserAntPosition = 11;               //position last reported by userAnt
-    int lastReportedAttackerAntPosition = 5;            //position last reported by attackerAnt
-    int gameState = 0;                                  //0 for running, 1 for waiting for user to terminate, 2 pause, -1 terminated
+    //Position of user ant last reported
+    int lastReportedUserAntPosition = 11;
+    //Position of attacker ant last reported
+    int lastReportedAttackerAntPosition = 5;
+    //0 for running, 1 for waiting for user to terminate, 2 pause, -1 terminated
+    int gameState = 0;
+    //Variable that stores the position of movement attempts made
     int attempt = 0;
-    int attackMoveNum = 0;                              //keep track of attacker move number for level system
+
     fromUser :> attempt;                                //start game when user moves
     fromUser <: 1;                                      //forbid first move
 
@@ -396,88 +470,56 @@ void controller(chanend fromAttacker, chanend fromUser) {
     {
         select
         {
+            //Attacker ant process
             case fromAttacker :> attempt:
                 //printf("Request Attacker move to %d\n", attempt);
-                //if move allowed
+                //If move is allowed
                 if(attempt != lastReportedUserAntPosition)
                 {
                     //printf("Move Attacker allowed\n");
+                    //Update last reported attacker position
                     lastReportedAttackerAntPosition = attempt;
-                    //victory condition - check if attacker ant has reached LED positions 1, 11 or 12.
-                    if(attempt == 0 || attempt == 11 || attempt == 10)
-                    {
-                        //Send terminate signal to attacker
-                        fromAttacker <: -1;
-                        //Set terminate variable
-                        gameState = 1; //Set game state to shut down user ant after attacker ant
-                    }
-                    else
-                    {
-                        //Send move allowed signal to attacker
-                        fromAttacker <: 0;
-                        attackMoveNum ++;
-                    }
+                    //Check termination
+                    gameState = checkTerminateCondition(fromAttacker, attempt, gameState);
                 }
-                //move forbidden
+                //Move forbidden
                 else
                 {
                     //Send move forbidden signal to attacker
                     fromAttacker <: 1;
                 }
                 break;
+            //User ant process
             case fromUser :> attempt:
                 //printf("Request move to %d\n", attempt);
                 switch(attempt){
-                    case -1:
-                        printf("Pause Game\n");
-                        //Recieve attempt before sending pause signal
-                        fromAttacker :> attempt;
-                        fromAttacker <:-2;
-                        break;
                     case -2:
-                        printf("Unpause Game\n");
-                        //Send signal to proceed attacker ant
+                        //printf("Pause\n");
+                        //Recieve current attacker attempt before sending pause signal
+                        fromAttacker :> attempt;
                         fromAttacker <:-2;
                         break;
                     case -3:
+                        //printf("Unpause\n");
+                        //Send signal to proceed attacker ant
+                        fromAttacker <:-2;
+                        break;
+                    case -4:
+                        //printf("Restart\n");
                         fromAttacker :> attempt;
-                        //send reset signal to attacker, reset controller values
-                        fromAttacker <: -3;
+                        //Send reset signal to attacker, reset controller values
+                        fromAttacker <: -4;
                         gameState = 0;
-                        attackMoveNum = 0;
                         lastReportedUserAntPosition = 11;
                         lastReportedAttackerAntPosition = 5;
                         break;
                     default:
-                        if(attempt != lastReportedAttackerAntPosition){
-                            //printf("Move Defender allowed\n");
-                            //Send move allowed signal
-                            fromUser <: 0;
-                            //Update last reported position
-                            lastReportedUserAntPosition = attempt;
-                        }
-                        else
-                            //Send move forbidden signal
-                            fromUser <: 1;
+                        lastReportedUserAntPosition = checkUserMove(fromUser, attempt, lastReportedUserAntPosition, lastReportedAttackerAntPosition);
                         break;
                 }
                 break;
                 default:
-                    //if attacker has been terminated
-                    if (gameState == 1)
-                    {
-                        //if data on channel, then clear data
-                        select{
-                            case fromUser :> int i:
-                                break;
-                            default:
-                                break;
-                         }
-                         //Send terminate signal to user
-                         fromUser <: -1;
-                         fromUser <: attackMoveNum;
-                         gameState = -1;     //controller ready to terminate
-                    }
+                    gameState = checkTerminate(fromUser, gameState);
                     break;
         }
     }
